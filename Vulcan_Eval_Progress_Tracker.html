@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vulcan Evaluation — Progress Tracker</title>
+<style>
+  :root{
+    --bg:#0f1522; --panel:#161e30; --panel2:#1c2742; --line:#2a3754;
+    --txt:#e8edf7; --dim:#93a1bd; --accent:#4da3ff; --accent2:#7ec8ff;
+    --ok:#3ecf8e; --warn:#f5b84d; --block:#f0646c; --idle:#8a97b1;
+    --chip:#223052;
+  }
+  body.light{
+    --bg:#f3f5fa; --panel:#ffffff; --panel2:#eef2f9; --line:#d7deeb;
+    --txt:#15203a; --dim:#5d6b8a; --accent:#1f4e79; --accent2:#2e74b5;
+    --chip:#e3eaf6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+  header{position:sticky;top:0;z-index:50;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  header h1{font-size:17px;margin:0 14px 0 0;white-space:nowrap}
+  header h1 span{color:var(--accent)}
+  .spacer{flex:1}
+  select,button,input[type=text]{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font:inherit;font-size:13px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .userbar{display:flex;gap:6px;align-items:center;font-size:13px}
+  .badge{padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:600;background:var(--chip);color:var(--accent2)}
+  .badge.editor{background:rgba(62,207,142,.15);color:var(--ok)}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 20px 80px}
+  /* overview */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:6px 0 16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat .n{font-size:24px;font-weight:700}
+  .stat .l{color:var(--dim);font-size:12px}
+  .ws-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px;margin-bottom:18px}
+  .ws-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer}
+  .ws-card:hover{border-color:var(--accent)}
+  .ws-card h3{margin:0 0 4px;font-size:13.5px}
+  .ws-card .mini{color:var(--dim);font-size:11.5px;margin-bottom:8px}
+  .bar{height:7px;border-radius:4px;background:var(--panel2);overflow:hidden;display:flex}
+  .bar i{display:block;height:100%}
+  .bar .b-done{background:var(--ok)} .bar .b-prog{background:var(--warn)} .bar .b-block{background:var(--block)}
+  /* toolbar */
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 14px}
+  .toolbar input[type=text]{min-width:220px}
+  /* sections and items */
+  .ws-section{margin-bottom:26px}
+  .ws-section>h2{font-size:15.5px;border-bottom:2px solid var(--accent);padding-bottom:5px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .ws-section>.ws-desc{color:var(--dim);font-size:12.5px;margin:2px 0 10px}
+  .item{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--idle);border-radius:9px;margin-bottom:8px}
+  .item.st-done{border-left-color:var(--ok)} .item.st-in_progress{border-left-color:var(--warn)}
+  .item.st-blocked{border-left-color:var(--block)}
+  .item-head{display:flex;gap:10px;align-items:center;padding:9px 14px;cursor:pointer;flex-wrap:wrap}
+  .item-head .id{font-weight:700;color:var(--accent2);font-size:12px;min-width:40px}
+  .item-head .t{flex:1;font-weight:600;font-size:13.5px;min-width:220px}
+  .chip{font-size:10.5px;padding:2px 8px;border-radius:12px;background:var(--chip);color:var(--dim);white-space:nowrap}
+  .chip.p1{color:var(--block)} .chip.p2{color:var(--warn)}
+  .chip.src{color:var(--accent2)}
+  body.hide-src .chip.src{display:none}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--accent);cursor:pointer}
+  .st-pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;white-space:nowrap}
+  .st-pill.not_started{background:var(--chip);color:var(--idle)}
+  .st-pill.in_progress{background:rgba(245,184,77,.18);color:var(--warn)}
+  .st-pill.blocked{background:rgba(240,100,108,.18);color:var(--block)}
+  .st-pill.done{background:rgba(62,207,142,.18);color:var(--ok)}
+  .own{font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .item-body{display:none;border-top:1px solid var(--line);padding:12px 16px 14px;font-size:13px}
+  .item.open .item-body{display:block}
+  .item-body .desc{margin:0 0 8px;color:var(--txt)}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:3px 10px;margin:8px 0;font-size:12.5px}
+  .kv b{color:var(--dim);font-weight:600}
+  .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 6px}
+  .notes{margin-top:10px}
+  .note{background:var(--panel2);border-radius:7px;padding:7px 11px;margin-bottom:6px;font-size:12.5px}
+  .note .meta{color:var(--dim);font-size:11px;margin-bottom:2px}
+  .note-add{display:flex;gap:8px;margin-top:6px}
+  .note-add input{flex:1}
+  .muted{color:var(--dim);font-size:12px}
+  .ro-msg{font-size:11.5px;color:var(--dim);font-style:italic}
+  footer{position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--line);padding:6px 20px;font-size:11.5px;color:var(--dim);display:flex;gap:16px;flex-wrap:wrap}
+  dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:12px;max-width:520px;padding:20px}
+  dialog::backdrop{background:rgba(0,0,0,.55)}
+  dialog h3{margin-top:0}
+  dialog label{display:block;margin:10px 0 3px;font-size:12.5px;color:var(--dim)}
+  dialog input[type=text],dialog textarea,dialog select{width:100%}
+  dialog textarea{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font:inherit;min-height:70px}
+  .hidden{display:none!important}
+  .sync{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:14px;background:var(--chip);color:var(--idle);white-space:nowrap}
+  .sync.ok{color:var(--ok);background:rgba(62,207,142,.15)}
+  .sync.busy{color:var(--warn);background:rgba(245,184,77,.15)}
+  .sync.err{color:var(--block);background:rgba(240,100,108,.15)}
+  .banner{background:rgba(245,184,77,.12);border:1px solid var(--warn);border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .item.pending{opacity:.65}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+  .tab{border:none;border-bottom:3px solid transparent;border-radius:0;background:none;padding:9px 16px;font-size:14px;font-weight:600;color:var(--dim)}
+  .tab.active{color:var(--txt);border-bottom-color:var(--accent)}
+  .pl-flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:20px}
+  .pl-phase-pill{display:flex;flex-direction:column;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:6px 12px;color:var(--txt);text-decoration:none;font-weight:600;font-size:13px}
+  .pl-phase-pill small{color:var(--dim);font-weight:400;font-size:11px}
+  .pl-phase-pill:hover{border-color:var(--accent)}
+  .pl-phase-pill.ev{border-color:var(--accent2)}
+  .pl-arrow{color:var(--dim)}
+  .pl-phase{margin-bottom:24px}
+  .pl-phase-head{border-bottom:2px solid var(--accent);padding-bottom:6px;margin-bottom:10px}
+  .pl-phase.ev .pl-phase-head{border-bottom-color:var(--accent2)}
+  .pl-phase-head h2{font-size:15.5px;margin:0 0 2px}
+  .pl-phase-head h2 small{color:var(--dim);font-weight:400;font-size:12px}
+  .pl-phase-bar{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .pl-phase-bar .bar{width:220px}
+  .pl-stages{display:flex;flex-direction:column;gap:8px}
+  .pl-stage{display:flex;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .pl-num{flex:0 0 38px;height:38px;border-radius:50%;background:var(--chip);color:var(--accent2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+  .pl-phase.ev .pl-num{background:var(--accent);color:#fff}
+  .pl-body{flex:1;min-width:0}
+  .pl-body h3{margin:2px 0 4px;font-size:14px}
+  .pl-body p{margin:0 0 8px;font-size:13px}
+  .pl-meta{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:12px;color:var(--dim);margin-bottom:8px}
+  .pl-meta b{color:var(--txt);font-weight:600;margin-right:3px}
+  .pl-meta code{font-size:11.5px}
+  .pl-items{display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:12px}
+  .pl-item{cursor:pointer;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:12px;background:var(--chip);color:var(--idle);border:1px solid transparent}
+  .pl-item:hover{border-color:var(--accent)}
+  .pl-item.st-in_progress{background:rgba(245,184,77,.18);color:var(--warn)}
+  .pl-item.st-blocked{background:rgba(240,100,108,.18);color:var(--block)}
+  .pl-item.st-done{background:rgba(62,207,142,.18);color:var(--ok)}
+  @media print{header .toolbar,footer{display:none}}
+</style>
+</head>
+<body>
+
+<script type="application/json" id="seed-data">
+{
+  "meta": {"version": 3, "updated": "2026-10-06", "project": "AssetBlue Vulcan — Evaluation Programme"},
+  "workstreams": [
+    {"id":"A","name":"A · Ingestion & Extraction Evaluation","desc":"Automatic verification that what enters Vulcan (stages 1–11: briefings → taxonomy → documents → parse → chunks → classify → context & graph extract) is faithful and complete. Consolidates Eval Strategy v2.1 §4.1 with the Excel methodology rows D1, D2, D4, C2, C4, 1A–1C."},
+    {"id":"B","name":"B · Knowledge Graph & Canonicalisation Quality","desc":"Graph-level accuracy, completeness, consistency, redundancy (v2.1 §4.2 L1–L6) plus the canonicalisation over/under-merge evaluation from the Excel (row E1) and KG cleanup items from the Vulcan portal."},
+    {"id":"C","name":"C · Benchmark Case Generation (I-3)","desc":"Gates and probes that make generated RCA cases solvable, leak-free and correctly tiered — structural gates, leakage screens, shortcut probes, ensemble triage, IRT item analysis, contamination screens."},
+    {"id":"D","name":"D · Automatic Judge Validation (I-4)","desc":"Cross-family judge panel, seeded-error (metamorphic) contrast audits, bias & stability monitors, and the one-time human anchor set."},
+    {"id":"E","name":"E · External Evaluation & Statistics","desc":"The outward-facing component: handbook/literature case corpus, contamination management, full statistical battery, robustness suites, criterion validity, benchmark card and public release."},
+    {"id":"F","name":"F · Gold Validation (Human) Programme","desc":"The deliberately small human tracks GV-1…GV-6 that calibrate the automatic verifiers and validate solver outcomes, plus the staged annotation platform they run on."},
+    {"id":"G","name":"G · Pipeline Hygiene & Known Gaps","desc":"Actionable gaps from the Vulcan Onboarding Portal (2026-09-30): unlinked figures, empty evidence links, uneven higher-order layers, dedup leftovers, asset-specific code paths, and pending asset decisions."}
+  ],
+  "items": [
+    {"id":"A1","ws":"A","title":"Graph-extraction eval harness (mechanism cards)","priority":1,"phase":"P1","source":"Excel D2 + v2.1 §4.1","stage":"Stage 11 · graph_extract",
+     "desc":"Evaluate the Qwen3-235B graph extraction that produces mechanism cards (FailureMode, FailureMechanism, RootCause, Symptom, CorrectiveAction).",
+     "actions":"Build 10 assets × 10 docs = 100-doc eval set (9 collections per doc), run Vulcan graph extract with chunk citations. Test 1: pydantic schema gates — allowed values enforced, violations caught. Test 2: cross-family judge LLMs (Opus-class, GPT-class), inter-judge agreement and agreement with Vulcan. Test 3: 20-doc human validation subset (GV-1). Repeat across runs, prompt variants, models and asset classes to measure drift.",
+     "metric":"Schema pass 100% · judge–Vulcan agreement (weighted κ) · run/prompt/model drift bounds","status":"not_started","owner":"Ganesh","notes":[]},
+    {"id":"A2","ws":"A","title":"Provenance span-alignment verifier (V1) — fill & verify evidence links","priority":1,"phase":"P1","source":"v2.1 V1 + portal gap","stage":"Stages 10–11",
+     "desc":"Every extracted object must carry a resolvable source span. Portal gap: the document_chunks evidence field has never been filled by extraction on any asset — this item covers filling it and verifying it.",
+     "actions":"Populate document_chunks at extraction; deterministic fuzzy alignment (normalised Levenshtein + ROUGE-L containment, τ=0.8) of each object's surface form against its cited span; fail list per asset.",
+     "metric":"Span-alignment rate = 100% of objects with resolvable spans","status":"not_started","owner":"","notes":[]},
+    {"id":"A3","ws":"A","title":"NLI entailment verification of triples (V2)","priority":1,"phase":"P1","source":"v2.1 V2","stage":"Stages 10–11",
+     "desc":"Verbalise each triple and check entailment against its cited chunk with a MiniCheck-class checker (±AlignScore), cross-family LLM tie-break at T=0. The affordable path to 100%-coverage faithfulness.",
+     "actions":"Stand up checker service; verbalisation templates per collection; run at full coverage per build; quarantine unsupported objects.",
+     "metric":"Entailment-verified rate (EVR) ≥ 99% · hallucinated-object rate < 1%","status":"not_started","owner":"","notes":[]},
+    {"id":"A4","ws":"A","title":"QAG recall probe (V3)","priority":2,"phase":"P1","source":"v2.1 V3","stage":"Stages 10–11",
+     "desc":"Recall proxy without full gold annotation: generate factoid questions from sampled source passages, answer them from the extracted graph only, score answerability.",
+     "actions":"Question-generation prompt per doc type; graph-only answerer; automatic matcher; report per document type.",
+     "metric":"QAG-recall ≥ 90% per doc type","status":"not_started","owner":"","notes":[]},
+    {"id":"A5","ws":"A","title":"Extraction self-consistency (V4)","priority":3,"phase":"P1","source":"v2.1 V4","stage":"Stages 10–11",
+     "desc":"Run extraction k=3 with seed/model jitter; pairwise Jaccard of canonicalised triple sets flags brittle prompts and ambiguous sources.",
+     "actions":"Harness for k-run extraction on probe set; per-document agreement dashboard.",
+     "metric":"Mean Jaccard ≥ 0.85 per document; low-agreement docs queued","status":"not_started","owner":"","notes":[]},
+    {"id":"A6","ws":"A","title":"Degradation robustness curves (V5)","priority":3,"phase":"P2","source":"v2.1 V5","stage":"Stage 7 · parse",
+     "desc":"Re-ingest a fixed probe set under OCR noise (ε = 1/3/5%), table linearisation, caption-only input; plot quality vs corruption.",
+     "actions":"Corruption generators; probe set; EVR×QAG curve per ε.",
+     "metric":"< 5 pt drop at ε = 3% OCR noise","status":"not_started","owner":"","notes":[]},
+    {"id":"A7","ws":"A","title":"Context-extraction eval (models, components, envelopes)","priority":3,"phase":"P1","source":"Excel D1 + portal gap","stage":"Stage 10 · context_extract",
+     "desc":"DeepSeek context extraction reads only 12 passages per document, so envelopes in tables outside them are missed (stenter: 437 envelopes from 2,042 docs). Evaluate precision AND coverage.",
+     "actions":"Mirror the A1 harness for context objects; measure envelope coverage against a table-census of sampled documents; decide passage-budget policy from the curve.",
+     "metric":"Extraction P/R on gold sample · envelope coverage per doc","status":"not_started","owner":"","notes":[]},
+    {"id":"A8","ws":"A","title":"InvestigationCase & Standards extraction eval","priority":4,"phase":"P2","source":"Excel D4","stage":"Stage 16 · higher-order",
+     "desc":"Same design as the graph-extraction harness (A1), applied to standards and investigation-case extraction.",
+     "actions":"Reuse A1 harness: schema gates, cross-family judges, small human subset, drift variations.",
+     "metric":"Schema pass 100% · judge agreement · drift bounds","status":"not_started","owner":"","notes":[]},
+    {"id":"A9","ws":"A","title":"Document classification eval (type & authority tier)","priority":5,"phase":"P2","source":"Excel C4","stage":"Stage 9 · kb_ingest",
+     "desc":"Gemini classifies each document (document_type, authority_tier A–D) from ~6 sampled chunks; this drives evidence weighting downstream.",
+     "actions":"10 assets × 100 docs; multi-judge labels; 10×10 human held-out; variations as usual.",
+     "metric":"Type accuracy · tier accuracy (quadratic-weighted κ vs human held-out)","status":"not_started","owner":"","notes":[]},
+    {"id":"A10","ws":"A","title":"Chunking & retrieval (RAG) eval","priority":6,"phase":"P2","source":"Excel C2","stage":"Stage 8 · chunk",
+     "desc":"Child/parent chunking with context headers — evaluate as a retrieval system.",
+     "actions":"Query set with multi-judge gold relevance labels + 10% human held-out; context precision/recall at k; table-integrity spot checks (tables never split).",
+     "metric":"Context precision / recall @k · header-attribution accuracy","status":"not_started","owner":"","notes":[]},
+    {"id":"A11","ws":"A","title":"Taxonomy axes eval (briefings → axes)","priority":4,"phase":"P2","source":"Excel 1A","stage":"Stages 1–2",
+     "desc":"Are the generated axes comprehensive, correct, and at the right granularity? Covers the ten search themes, the prompts, the search provider, and the two-pass GPT synthesis.",
+     "actions":"Expert checklist per asset class (axes vs engineering handbooks/standards); cross-family audit judge on comprehensiveness/granularity; coverage score of briefing themes.",
+     "metric":"Axis coverage vs reference checklist · expert-rated correctness/granularity","status":"not_started","owner":"","notes":[]},
+    {"id":"A12","ws":"A","title":"Axes canon & crosswalk eval","priority":5,"phase":"P2","source":"Excel 1B/1C","stage":"Stage 2 · taxonomy",
+     "desc":"Axis merging (≥50% value overlap rule) and the service-category crosswalk that maps market vocabulary to subtype IDs.",
+     "actions":"Adversarial merge pairs (same-axis different names vs genuinely distinct); crosswalk accuracy sample against maker catalogs; additive-only invariant check on deployed taxonomies.",
+     "metric":"Merge precision/recall · crosswalk mapping accuracy on sample","status":"not_started","owner":"","notes":[]},
+
+    {"id":"B1","ws":"B","title":"SHACL-style constraint suite (L1)","priority":1,"phase":"P0","source":"v2.1 L1","stage":"Graph",
+     "desc":"Deterministic schema validation: type/domain/range, cardinality (mechanism ⇒ ≥1 mode, ≥1 root cause), edge direction, orphans, forbidden cycles.",
+     "actions":"Author shapes for the 19 classes; run on live graph per asset; release-block hard violations.",
+     "metric":"Violations per 10K objects → 0; hard violations block release","status":"not_started","owner":"","notes":[]},
+    {"id":"B2","ws":"B","title":"Rule-mining contradiction detection (L2)","priority":3,"phase":"P1","source":"v2.1 L2","stage":"Graph",
+     "desc":"AMIE-style Horn-rule mining (PCA confidence ≥ 0.9); violating triples ranked as suspects for verification.",
+     "actions":"Miner over per-asset graphs; suspect queue feeding B4.",
+     "metric":"Suspect-triple rate per release; precision of flags on calibration sample","status":"not_started","owner":"","notes":[]},
+    {"id":"B3","ws":"B","title":"Embedding outlier detection (L3)","priority":3,"phase":"P1","source":"v2.1 L3","stage":"Graph",
+     "desc":"ComplEx-class link-prediction scoring of every existing triple; lowest-plausibility percentile flagged.",
+     "actions":"Train embeddings per asset graph; score & rank; feed suspects to B4.",
+     "metric":"Flag precision ≥ 0.5 on calibration sample; flag-rate trend ↓","status":"not_started","owner":"","notes":[]},
+    {"id":"B4","ws":"B","title":"Citation verification at scale (L4) — semantic accuracy","priority":1,"phase":"P1","source":"v2.1 L4","stage":"Graph",
+     "desc":"The A3 entailment verifier applied graph-side to (object, cited span) pairs, prioritising L2/L3 suspects; unsupported objects quarantined.",
+     "actions":"Stratified random sample per collection for the headline number; continuous verification of suspect queue.",
+     "metric":"Semantic accuracy ≥ 95% (Wilson CI lower bound ≥ 92%)","status":"not_started","owner":"","notes":[]},
+    {"id":"B5","ws":"B","title":"Competency questions + canon coverage (L5)","priority":2,"phase":"P1","source":"v2.1 L5","stage":"Graph",
+     "desc":"Expert CQs compiled to executable graph queries (run every build); auto-alignment of EPRI ~35 boiler mechanisms, IEC 60599/Duval classes, IEEE C57.125 causes to graph nodes.",
+     "actions":"Author CQs per asset class (one-time expert input); compile to queries; embedding+synonym canon matcher; missing-coverage defect list.",
+     "metric":"CQ pass ≥ 90% · canon coverage ≥ 95% per shipped asset class","status":"not_started","owner":"Manish","notes":[]},
+    {"id":"B6","ws":"B","title":"Canonicalisation eval — over/under-merge suites","priority":2,"phase":"P1","source":"Excel E1 + v2.1 L6","stage":"Stage 12 · canon",
+     "desc":"Embed-merge at 0.92 cosine + unanimous LLM jury for the grey zone, deliberately non-transitive. Evaluate both failure directions.",
+     "actions":"10 assets × 10 collections × 1k–5k items; multi-judge jury configs; 100 human samples/asset (GV-2); adversarial overmerge pairs (near-identical items) and undermerge sets (100 candidates across 10 branches — measure merge ratio); run/model variations.",
+     "metric":"Merge precision ≥ 98% · duplicate rate < 2% · adversarial pass rates","status":"not_started","owner":"Ganesh","notes":[]},
+    {"id":"B7","ws":"B","title":"Task-based KGQA suite","priority":3,"phase":"P2","source":"v2.1 §4.2","stage":"Graph",
+     "desc":"CQ suite run end-to-end through retrieval + TF·IDF graph walk (no solver LLM) to catch mis-wired edges and weight pathologies.",
+     "actions":"Fixed query suite; automatic correctness scoring vs expected answer sets; per-build trend.",
+     "metric":"KGQA pass rate per build","status":"not_started","owner":"","notes":[]},
+    {"id":"B8","ws":"B","title":"Graph cleanup: pre-dedup leftovers & duplicate parses","priority":4,"phase":"P0","source":"Portal gaps","stage":"Stages 13–15",
+     "desc":"Transformer (~1,000) and turbine (~2,700) carry pre-dedup objects in Weaviate; duplicate parsed documents from before #104 (pump 404, stenter 46, textile dyeing 30, electroplating 30); chunk-id collisions; misfiled figures.",
+     "actions":"Dedup-and-repush transformer & turbine (canon → dedup → push → fix-refs order); purge duplicate parses; fix chunk-id collisions and boiler-images misfiles.",
+     "metric":"Zero pre-dedup leftovers; zero duplicate parsed docs","status":"not_started","owner":"","notes":[]},
+
+    {"id":"C1","ws":"C","title":"Structural gates on every generated case","priority":1,"phase":"P0","source":"v2.1 §4.3","stage":"Benchmark gen",
+     "desc":"Anchor integrity (every S#/D# resolves), schema validity, distractor count & discriminating evidence match configuration.",
+     "actions":"Gate runner in the generation job; per-build report artifact.",
+     "metric":"100% pass, release-blocking","status":"not_started","owner":"Aakrit","notes":[]},
+    {"id":"C2","ws":"C","title":"Leakage screens (lexical + embedding)","priority":1,"phase":"P0","source":"v2.1 §4.3","stage":"Benchmark gen",
+     "desc":"case_input must not contain the GT label, synonyms or high-IDF substrings; embedding similarity to GT definition must not exceed distractor-similarity distribution by more than the calibrated margin.",
+     "actions":"Lexical screen from vocabulary; embedding margin calibration; regenerate failures.",
+     "metric":"0 leaking cases shipped","status":"not_started","owner":"","notes":[]},
+    {"id":"C3","ws":"C","title":"Shortcut probes: evidence-free, choice-only, distractor-strength","priority":1,"phase":"P0","source":"v2.1 §4.3","stage":"Benchmark gen",
+     "desc":"Statistical probes per benchmark build that detect narrative leakage and prior-popularity shortcuts (generator self-bias).",
+     "actions":"Three probe arms wired into the run harness; run on existing 40/49-case benchmarks first (Phase 0).",
+     "metric":"Evidence-free gap > 20 pts · choice-only ≈ base rate (±10)","status":"not_started","owner":"Aakrit","notes":[]},
+    {"id":"C4","ws":"C","title":"Solver-ensemble convergence triage","priority":2,"phase":"P1","source":"v2.1 §4.3","stage":"Benchmark gen",
+     "desc":"Cross-family solver ensemble answers every case; only high-entropy or wrong-convergence cases (plus 5% random control) go to human audit (GV-3).",
+     "actions":"≥3-family ensemble harness; entropy flagging; control-sample pipeline measuring triage false-negative rate.",
+     "metric":"Triage FNR < 5% (from control sample)","status":"not_started","owner":"","notes":[]},
+    {"id":"C5","ws":"C","title":"Item analysis — empirical difficulty & discrimination (CTT/IRT)","priority":2,"phase":"P1","source":"v2.1 §4.3","stage":"Benchmark runs",
+     "desc":"Per-item difficulty and point-biserial discrimination from run telemetry; 2PL IRT once ≥8–10 solver configs exist. Converts assigned difficulty tiers into measured properties.",
+     "actions":"Telemetry aggregation job; item-stats dashboard; flag non-discriminating items.",
+     "metric":"Spearman ρ(tier, b_i) ≥ 0.5 · no items with r_pb ≤ 0","status":"not_started","owner":"","notes":[]},
+    {"id":"C6","ws":"C","title":"Contamination screen on generated cases","priority":3,"phase":"P1","source":"v2.1 §4.3","stage":"Benchmark gen",
+     "desc":"13-gram overlap + embedding near-duplicate search against public corpora surrogates and known benchmark suites; matches regenerated.",
+     "actions":"Screen job in generation pipeline; threshold calibration.",
+     "metric":"Screen clean per build","status":"not_started","owner":"","notes":[]},
+
+    {"id":"D1","ws":"D","title":"Cross-family judge panel with escalation","priority":1,"phase":"P0","source":"v2.1 A1","stage":"Benchmark eval",
+     "desc":"Current claude-sonnet judge plus ≥1 non-Anthropic judge on identical rubrics; per-item disagreement ≥2 Likert points escalates to human review.",
+     "actions":"Add GPT-class or DeepSeek/Qwen judge to bench_judge; inter-judge κ/α monitor per run; escalation queue.",
+     "metric":"Inter-judge agreement stable · escalation rate < 5%","status":"not_started","owner":"Aakrit","notes":[]},
+    {"id":"D2","ws":"D","title":"Seeded-error contrast audit (metamorphic judge test)","priority":1,"phase":"P0","source":"v2.1 A2","stage":"Benchmark eval",
+     "desc":"Programmatically corrupt reference answers per axis (swap mechanism for ruled-out distractor; wrong trigger; strip citations; drop critical actions). Judge must rank corrupted strictly below clean. Unlimited-scale judge validation with zero human labels.",
+     "actions":"Corruption generators from case adjudications; sensitivity dashboard; regression-gate judge versions.",
+     "metric":"Judge sensitivity ≥ 0.95 per axis","status":"not_started","owner":"","notes":[]},
+    {"id":"D3","ws":"D","title":"Bias & stability monitors (position, verbosity, repeatability, drift)","priority":2,"phase":"P1","source":"v2.1 A3","stage":"Benchmark eval",
+     "desc":"Order randomisation with order-invariance test; score-vs-length partial correlation; T=0 re-judging k=3 on 10% subsample; PSI/KS distribution drift across runs.",
+     "actions":"Monitors wired into run aggregation; alerts.",
+     "metric":"|r_verbosity| ≤ 0.2 · drift > 1 pt on ≤ 5% items · stable distributions","status":"not_started","owner":"","notes":[]},
+    {"id":"D4","ws":"D","title":"Human anchor set for the judge (GV-4)","priority":2,"phase":"P1","source":"v2.1 §4.4 + GV-4","stage":"Benchmark eval",
+     "desc":"One-time: 150–200 case-sides blind-graded by ≥2 engineers on the judge's rubric; re-anchor (~50) only on judge/rubric change.",
+     "actions":"Run through staged annotation UI (F5); report weighted κ and Krippendorff's α vs panel next to human–human ceiling.",
+     "metric":"Judge–human α ≥ 0.6 (≥ 0.8 publication) and within 0.1 of human ceiling","status":"not_started","owner":"Manish","notes":[]},
+
+    {"id":"E1","ws":"E","title":"External case corpus from handbooks & literature","priority":1,"phase":"P2","source":"v2.1 E-1","stage":"External",
+     "desc":"75–100 cases per asset class from EPRI field guide/TR-102433, IEEE C57.125-format investigations, Engineering Failure Analysis / CSEFA / JFAP case studies, NETL reports; frequency-weighted by CIGRE TB 642 statistics; public + private splits.",
+     "actions":"Source licensing review; LLM-assisted structuring into v6 operator format with automatic redaction check; double expert adjudication of ground truth (GV-5).",
+     "metric":"75–100 adjudicated cases/asset; coverage matrix vs canon taxonomy","status":"not_started","owner":"Manish","notes":[]},
+    {"id":"E2","ws":"E","title":"Contamination probes & split policy","priority":2,"phase":"P2","source":"v2.1 E-1/G8","stage":"External",
+     "desc":"Memorisation probes per external case: source-identification prompting, guided completion of redacted conclusions, score deltas under paraphrase and entity renaming.",
+     "actions":"Probe harness; report original vs paraphrased/renamed; maintain contamination-resistant core (private + post-cutoff cases).",
+     "metric":"Paraphrase delta reported per case; resistant core ≥ 30% of corpus","status":"not_started","owner":"","notes":[]},
+    {"id":"E3","ws":"E","title":"Statistical battery on existing 40/49-case benchmarks","priority":1,"phase":"P0","source":"v2.1 E-2","stage":"Benchmark runs",
+     "desc":"Phase-0 quick win: re-run boiler (40) and transformer (49) benchmarks ×3; report mean ± 95% CI (BCa paired bootstrap, 10k resamples), Wilcoxon signed-rank, matched-pairs rank-biserial effect size; clustered SEs for same-source cases.",
+     "actions":"Stats module in run aggregation; re-run existing benchmarks; replace point estimates in all outward material.",
+     "metric":"Every headline number carries CI + p + effect size","status":"not_started","owner":"Aakrit","notes":[]},
+    {"id":"E4","ws":"E","title":"Robustness suites: perturbation, ablation, adversarial distractors","priority":2,"phase":"P2","source":"v2.1 E-4","stage":"Benchmark runs",
+     "desc":"NLI-filtered paraphrase, symptom reorder, unit conversion, jargon swap; full → reduced → evidence-free degradation curves; +1 high-confusability distractor flip rate.",
+     "actions":"Perturbation generators + meaning-preservation filter; suite runner; per-tier reporting.",
+     "metric":"|Δscore| within run-to-run noise · graceful degradation curve","status":"not_started","owner":"","notes":[]},
+    {"id":"E5","ws":"E","title":"Cross-model generalization of KB lift","priority":2,"phase":"P2","source":"v2.1 E-4","stage":"Benchmark runs",
+     "desc":"KB lift must replicate across ≥3 model families — the cleanest demonstration that the lift is knowledge, not prompt artefact.",
+     "actions":"Run A-vs-B with Claude + DeepSeek/Qwen + GPT-class at comparable capability.",
+     "metric":"Significant lift in ≥ 3 families","status":"not_started","owner":"","notes":[]},
+    {"id":"E6","ws":"E","title":"Confidence calibration (Brier / ECE)","priority":3,"phase":"P2","source":"v2.1 E-4","stage":"Benchmark runs",
+     "desc":"Solvers emit confidence 0–1; confidently-wrong diagnosis is a safety defect in this domain.",
+     "actions":"Brier + ECE over confidence bins in aggregation; reliability diagrams.",
+     "metric":"ECE reported per side per run","status":"not_started","owner":"","notes":[]},
+    {"id":"E7","ws":"E","title":"Criterion validity: internal ↔ external correlation","priority":2,"phase":"P3","source":"v2.1 E-3","stage":"External",
+     "desc":"The keystone: Spearman correlation of per-configuration scores between the synthetic benchmark and the external corpus (≥6 solver configs). ρ ≥ 0.7 licenses quoting synthetic numbers externally.",
+     "actions":"Joint run matrix; correlation study; refine synthetic benchmark if ρ < 0.7.",
+     "metric":"Spearman ρ ≥ 0.7 across ≥ 6 configurations","status":"not_started","owner":"","notes":[]},
+    {"id":"E8","ws":"E","title":"Benchmark card, public split & IEC TC 10 run","priority":3,"phase":"P3","source":"v2.1 E-3/§8","stage":"External",
+     "desc":"Public release: benchmark card (construct, probes, limits — construct-validity checklist), public case split, and a scored run on the community IEC TC 10 DGA benchmark for a directly comparable number.",
+     "actions":"Card authoring; licence-clean public split; TC 10 harness; workshop/journal submission.",
+     "metric":"Card published · public split released · TC 10 score reported","status":"not_started","owner":"","notes":[]},
+
+    {"id":"F1","ws":"F","title":"GV-1: Gold extraction set (~150 units)","priority":2,"phase":"P1","source":"v2.1 §6","stage":"Gold validation",
+     "desc":"One-time dual-annotated, adjudicated gold extraction sample that measures verifier (A2–A4) precision/recall; refreshed only on verifier or doc-mix change.",
+     "actions":"Stratified sampling by doc type × asset; two annotators + senior adjudication; verifier calibration report.",
+     "metric":"Annotator F1 ≥ 0.8 pre-adjudication · verifier P/R ≥ 0.95/0.90 vs gold","status":"not_started","owner":"Manish","notes":[]},
+    {"id":"F2","ws":"F","title":"GV-2: Triple verification sample (~300)","priority":2,"phase":"P1","source":"v2.1 §6","stage":"Gold validation",
+     "desc":"Stratified + flagged triples accept/reject against cited sources; calibrates the L2–L4 verifier ensemble. Includes the 100-per-asset canon samples from the Excel.",
+     "actions":"Sampling plan; dual annotation on 20%; ensemble P/R report.",
+     "metric":"κ ≥ 0.7 on dual subset · ensemble P/R vs gold","status":"not_started","owner":"","notes":[]},
+    {"id":"F3","ws":"F","title":"GV-3: Flagged-case audits + 5% control","priority":3,"phase":"P1","source":"v2.1 §6","stage":"Gold validation",
+     "desc":"Humans audit only ensemble-flagged generated cases plus a 5% random control that continuously measures triage false negatives.",
+     "actions":"Audit queue in annotation UI; control-sample report per build.",
+     "metric":"Triage FNR < 5%","status":"not_started","owner":"","notes":[]},
+    {"id":"F4","ws":"F","title":"GV-5/GV-6: External GT adjudication, expert sign-off, human baseline","priority":2,"phase":"P2","source":"v2.1 §6","stage":"Gold validation",
+     "desc":"Double adjudication of external-case ground truth; per-release named-expert sign-off on sampled traces (KPCL/CSEB advisers); 25–40-case blind human baseline.",
+     "actions":"Adjudication workflow; sign-off protocol document; baseline sessions ×3 experts.",
+     "metric":"% consensus + resolution log · expert–expert α · baseline mean","status":"not_started","owner":"Manish","notes":[]},
+    {"id":"F5","ws":"F","title":"Annotation platform (staged, segmented UI)","priority":1,"phase":"P1","source":"Manual Eval v0.1 + v2.1 §6","stage":"Gold validation",
+     "desc":"The v0.1 interaction design: LLM-segmented self-contained pages, staged indirect decisions, open-set escape hatch, agree-or-edit reasoning, everything captured as training data. All GV tracks run on it.",
+     "actions":"Build UI + capture store; 10-item calibration round per annotator (≥80% to qualify); pilot timing (target < 15 min/case-side).",
+     "metric":"Platform live · annotators qualified · timings measured","status":"not_started","owner":"Ganesh","notes":[]},
+
+    {"id":"G1","ws":"G","title":"Link DiagnosticImage figures in fix-refs","priority":2,"phase":"P0","source":"Portal gap · Stage 15","stage":"Stage 15",
+     "desc":"Fix-refs excludes DiagnosticImage, so every asset's figures (237K across fleet) reach Weaviate without references.",
+     "actions":"Extend fix-refs to DiagnosticImage; verify at consistency ALL; backfill per asset.",
+     "metric":"Figures referenced on all published assets","status":"not_started","owner":"","notes":[]},
+    {"id":"G2","ws":"G","title":"Mechanism-yield policy for low-value documents","priority":3,"phase":"P1","source":"Portal gap · Stage 11","stage":"Stage 11",
+     "desc":"~88% of stenter documents yield no mechanism (41% are catalogs). Open policy question: skip catalogs/datasheets before extraction?",
+     "actions":"Yield-by-doc-type analysis across assets; cost/coverage trade-off memo; decide and implement skip policy.",
+     "metric":"Decision recorded; extraction cost per mechanism ↓ without coverage loss","status":"not_started","owner":"","notes":[]},
+    {"id":"G3","ws":"G","title":"Even out higher-order layers across assets","priority":3,"phase":"P2","source":"Portal gap · Stage 16","stage":"Stage 16",
+     "desc":"Diagnostic rules: boiler+transformer only; standards missing for stenter/textile dyeing/electroplating; case studies boiler+transformer only; RCA edges boiler only.",
+     "actions":"Run standards_*, casestudy_*, diagnosticrule, rca_link for remaining published assets; de-specialise transformer-specific prompts.",
+     "metric":"All 9 published assets carry all higher-order layers","status":"not_started","owner":"","notes":[]},
+    {"id":"G4","ws":"G","title":"Generalise asset-specific code paths","priority":4,"phase":"P2","source":"Portal gap · code","stage":"Code",
+     "desc":"Tuned prompt settings exist only for boiler/transformer; diagnostic-rule prompt says 'transformer'; operating-envelope bridge queries boiler classes only; benchmark & twin cover 2 of 9 published assets.",
+     "actions":"Parameterise prompts by asset; envelope bridge generalisation; extend benchmark harness beyond boiler/transformer.",
+     "metric":"No hard-coded asset names in extraction/eval paths","status":"not_started","owner":"","notes":[]},
+    {"id":"G5","ws":"G","title":"Asset pipeline decisions & next onboards","priority":4,"phase":"P1","source":"Portal · decisions waiting","stage":"Fleet",
+     "desc":"Solar panel extracted & ready to publish; drone needs graph extraction; power press needs documents; fabric slitting taxonomy scope undecided (mill-wide ~13 subtypes vs converting-line only).",
+     "actions":"Publish solar_panel (canon→dedup→push→fix-refs); run drone graph extract; doc search for power_press; decide slitting scope.",
+     "metric":"Fleet table updated; decisions logged","status":"in_progress","owner":"Ganesh","notes":[]},
+    {"id":"G6","ws":"G","title":"Stenter model-subtype restamp","priority":5,"phase":"P1","source":"Portal gap · data","stage":"Stage 5",
+     "desc":"2,932 untagged models were filled with maker subtypes on 2026-09-25; 241 inherited all sixteen. Downstream restamp held until broad ones are narrowed.",
+     "actions":"Narrow the 241 broad-tagged models; run restamp.",
+     "metric":"No models tagged with all subtypes; restamp complete","status":"not_started","owner":"","notes":[]}
+  ]
+}
+</script>
+
+<header>
+  <h1>Vulcan <span>Evaluation</span> Tracker</h1>
+  <span class="muted" id="meta-line"></span>
+  <div class="spacer"></div>
+  <div class="userbar">
+    <label for="user-sel" class="muted">I am</label>
+    <select id="user-sel">
+      <option value="">Viewer</option>
+      <option>Manish</option>
+      <option>Ganesh</option>
+      <option>Aakrit</option>
+    </select>
+    <span class="badge" id="role-badge">view only</span>
+  </div>
+  <span class="sync" id="sync-pill" title="Google Sheet sync status">● local only</span>
+  <button onclick="refreshFromSheet(true)" title="Reload from the Google Sheet">⟳</button>
+  <button onclick="openSettings()" title="Connect the Google Sheet backend">⚙ Sheet settings</button>
+  <button onclick="exportJSON()" title="Download progress as JSON (offline backup)">⬇ Export JSON</button>
+  <button onclick="document.getElementById('import-file').click()" title="Load a progress JSON exported by a teammate">⬆ Import</button>
+  <input type="file" id="import-file" accept=".json" class="hidden" onchange="importJSON(this)">
+  <button onclick="downloadSnapshot()" title="Download a copy of this page with current progress baked in — share or host it as the new version">📸 Snapshot HTML</button>
+  <button onclick="toggleTheme()">◐</button>
+</header>
+
+<div class="wrap">
+  <nav class="tabs"><button class="tab" data-v="tracker" onclick="setView('tracker')">📋 Tracker</button><button class="tab" data-v="pipeline" onclick="setView('pipeline')">🔀 Pipeline</button></nav>
+  <div class="banner hidden" id="seed-banner">
+    <span>The connected Google Sheet is empty. Load the 49 tracker items into it?</span>
+    <button class="primary" onclick="seedSheet()">Seed sheet</button>
+  </div>
+  <div id="view-tracker">
+  <div class="stats" id="stats"></div>
+  <div class="ws-grid" id="ws-grid"></div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="Search items…" oninput="render()">
+    <select id="f-status" onchange="render()">
+      <option value="">All statuses</option>
+      <option value="not_started">Not started</option>
+      <option value="in_progress">In progress</option>
+      <option value="blocked">Blocked</option>
+      <option value="done">Done</option>
+    </select>
+    <select id="f-phase" onchange="render()">
+      <option value="">All phases</option>
+      <option value="P0">Phase 0 · Quick wins</option>
+      <option value="P1">Phase 1 · Instrumentation</option>
+      <option value="P2">Phase 2 · External & scale</option>
+      <option value="P3">Phase 3 · Publication</option>
+    </select>
+    <select id="f-owner" onchange="render()">
+      <option value="">All owners</option>
+      <option>Manish</option><option>Ganesh</option><option>Aakrit</option>
+      <option value="__none">Unassigned</option>
+    </select>
+    <label class="toggle" title="Show which strategy document each item came from"><input type="checkbox" id="show-src" onchange="setShowSource(this.checked)"> Show source</label>
+    <button id="add-btn" class="primary hidden" onclick="openAdd()">＋ Add item</button>
+    <div class="spacer"></div>
+    <span class="muted" id="count-line"></span>
+  </div>
+
+  <div id="sections"></div>
+  </div>
+  <div id="view-pipeline" class="hidden"></div>
+</div>
+
+<dialog id="add-dlg">
+  <h3>Add item</h3>
+  <label>Workstream</label><select id="n-ws"></select>
+  <label>Title</label><input type="text" id="n-title">
+  <label>Description</label><textarea id="n-desc"></textarea>
+  <label>Actions / process</label><textarea id="n-actions"></textarea>
+  <label>Metric / gate</label><input type="text" id="n-metric">
+  <label>Phase</label><select id="n-phase"><option value="P0">Phase 0 · Quick wins</option><option value="P1">Phase 1 · Instrumentation</option><option value="P2">Phase 2 · External & scale</option><option value="P3">Phase 3 · Publication</option></select>
+  <label>Priority (1 = highest)</label><input type="text" id="n-priority" value="3">
+  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+    <button onclick="document.getElementById('add-dlg').close()">Cancel</button>
+    <button class="primary" onclick="saveAdd()">Add</button>
+  </div>
+</dialog>
+
+<dialog id="set-dlg">
+  <h3>Google Sheet backend</h3>
+  <p class="muted" style="margin-top:0">Paste the Apps Script <b>Web app URL</b> (ends in <code>/exec</code>) from the Sheet's Extensions → Apps Script → Deploy. Viewers only need the URL. Editors also enter the shared edit key.</p>
+  <label>Web app URL</label><input type="text" id="s-url" placeholder="https://script.google.com/macros/s/…/exec">
+  <label>Edit key (editors only — kept in this browser)</label><input type="text" id="s-key" placeholder="shared passphrase">
+  <p class="muted" id="s-test"></p>
+  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+    <button onclick="disconnectSheet()">Disconnect</button>
+    <button onclick="document.getElementById('set-dlg').close()">Cancel</button>
+    <button class="primary" onclick="saveSettings()">Save & connect</button>
+  </div>
+</dialog>
+
+<footer>
+  <span><b>Live sync:</b> when connected, every status change, owner change and note is written straight to the Google Sheet (Items tab, plus an audit trail in the Log tab), and the page refreshes from the Sheet every 60 s.</span>
+  <span>Editors: Manish · Ganesh · Aakrit (with edit key) — everyone else views.</span>
+</footer>
+
+<script>
+"use strict";
+/* ============================================================
+   CONFIG — paste the Apps Script Web app URL here to make it the
+   default for every viewer (otherwise set it via ⚙ Sheet settings).
+   ============================================================ */
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbxJcxAxC4T4WreJA6vszadIi9CkBj3PLuape-6NvGvbg1NtcVn1oVt4118sWuBuN1X_/exec";
+
+const EDITORS = ["Manish","Ganesh","Aakrit"];
+const STATUSES = {not_started:"Not started", in_progress:"In progress", blocked:"Blocked", done:"Done"};
+const LS_KEY = "vulcanEvalTracker_v3";
+const POLL_MS = 60000;
+
+const seed = JSON.parse(document.getElementById("seed-data").textContent);
+let state = loadLocal();
+let user = localStorage.getItem(LS_KEY+"_user") || "";
+let apiUrl = localStorage.getItem(LS_KEY+"_api") || DEFAULT_API_URL;
+let editKey = localStorage.getItem(LS_KEY+"_key") || "";
+let sheetMode = false;          // true once a successful read from the Sheet has happened
+let pending = new Set();        // item ids with writes in flight
+let view = localStorage.getItem(LS_KEY+"_view") || "tracker";
+
+/* ---------------- local cache ---------------- */
+function loadLocal(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if(s && s.meta && s.items){
+      const have = new Set(s.items.map(i=>i.id));
+      seed.items.forEach(it=>{ if(!have.has(it.id)) s.items.push(clone(it)); });
+      s.workstreams = seed.workstreams;
+      return s;
+    }
+  }catch(e){}
+  return clone(seed);
+}
+function persist(){ state.meta.updated = new Date().toISOString().slice(0,10); localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function isEditor(){ return EDITORS.includes(user); }
+function canWrite(){ return isEditor() && (!sheetMode || !!editKey); }
+
+/* ---------------- Google Sheet API ---------------- */
+function setSync(cls, text){ const el=document.getElementById("sync-pill"); el.className="sync "+cls; el.textContent=text; }
+
+async function refreshFromSheet(manual){
+  if(!apiUrl){ sheetMode=false; setSync("", "● local only"); render(); return; }
+  setSync("busy","● syncing…");
+  try{
+    const r = await fetch(apiUrl, {method:"GET", redirect:"follow"});
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||"read failed");
+    sheetMode = true;
+    document.getElementById("seed-banner").classList.toggle("hidden", d.items.length>0 || !isEditor());
+    if(d.items.length){ applyServerItems(d.items); }
+    setSync("ok","● Sheet · "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}));
+  }catch(e){
+    setSync("err","● Sheet unreachable — showing cached copy");
+    if(manual) alert("Could not read the Google Sheet:\n"+e.message);
+  }
+  render();
+}
+function applyServerItems(items){
+  // Sheet is the source of truth; keep descriptive fields from seed if the sheet cell is blank
+  const seedById = Object.fromEntries(seed.items.map(i=>[i.id,i]));
+  state.items = items.map(it=>{
+    const s = seedById[it.id] || {};
+    const out = Object.assign({}, s, Object.fromEntries(Object.entries(it).filter(([k,v])=>v!=="" && v!=null)));
+    out.notes = it.notes || []; out.owner = it.owner || ""; out.status = it.status || "not_started";
+    return out;
+  });
+  persist();
+}
+async function post(payload){
+  const body = JSON.stringify(Object.assign({key:editKey, user:user}, payload));
+  // text/plain avoids a CORS preflight, which Apps Script cannot answer
+  const r = await fetch(apiUrl, {method:"POST", body, headers:{"Content-Type":"text/plain;charset=utf-8"}, redirect:"follow"});
+  const d = await r.json();
+  if(!d.ok) throw new Error(d.error||"write failed");
+  return d;
+}
+async function write(id, payload, optimistic){
+  optimistic();                       // update UI immediately
+  persist(); render();
+  if(!sheetMode) return;              // offline: local cache only
+  pending.add(id); render(); setSync("busy","● saving…");
+  try{
+    const d = await post(payload);
+    applyServerItems(d.items);
+    setSync("ok","● saved to Sheet · "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}));
+  }catch(e){
+    setSync("err","● save failed");
+    alert("Change NOT saved to the Google Sheet: "+e.message+"\nReloading the Sheet's current state.");
+    await refreshFromSheet(false);
+  }finally{ pending.delete(id); render(); }
+}
+async function seedSheet(){
+  if(!canWrite()){ alert("Select your editor name and enter the edit key in ⚙ Sheet settings first."); return; }
+  setSync("busy","● seeding…");
+  try{
+    const d = await post({action:"seed", items: seed.items});
+    applyServerItems(d.items);
+    document.getElementById("seed-banner").classList.add("hidden");
+    setSync("ok","● Sheet seeded");
+  }catch(e){ setSync("err","● seed failed"); alert("Seeding failed: "+e.message); }
+  render();
+}
+
+/* ---------------- settings ---------------- */
+function openSettings(){
+  document.getElementById("s-url").value = apiUrl;
+  document.getElementById("s-key").value = editKey;
+  document.getElementById("s-test").textContent = sheetMode ? "Currently connected." : (apiUrl ? "Configured but not reachable." : "Not connected — changes stay in this browser.");
+  document.getElementById("set-dlg").showModal();
+}
+function saveSettings(){
+  apiUrl = document.getElementById("s-url").value.trim();
+  editKey = document.getElementById("s-key").value.trim();
+  localStorage.setItem(LS_KEY+"_api", apiUrl);
+  localStorage.setItem(LS_KEY+"_key", editKey);
+  document.getElementById("set-dlg").close();
+  refreshFromSheet(true);
+}
+function disconnectSheet(){
+  apiUrl=""; localStorage.setItem(LS_KEY+"_api",""); sheetMode=false;
+  document.getElementById("set-dlg").close(); setSync("","● local only"); render();
+}
+
+/* ---------------- tabs ---------------- */
+function setView(v){
+  view=v; localStorage.setItem(LS_KEY+"_view", v);
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active", t.dataset.v===v));
+  document.getElementById("view-tracker").classList.toggle("hidden", v!=="tracker");
+  document.getElementById("view-pipeline").classList.toggle("hidden", v!=="pipeline");
+  render();
+}
+
+/* ---------------- rendering: tracker ---------------- */
+const open = new Set();
+function render(){
+  document.getElementById("role-badge").textContent = isEditor()? (user+(sheetMode && !editKey?" · needs key":" · editor")) : "view only";
+  document.getElementById("role-badge").className = "badge"+(canWrite()?" editor":"");
+  document.getElementById("add-btn").classList.toggle("hidden", !canWrite());
+  document.getElementById("meta-line").textContent = sheetMode ? "source: Google Sheet" : "updated "+(state.meta.updated||"—")+" (local)";
+  if(view==="pipeline"){ renderPipeline(); return; }
+
+  const q=(document.getElementById("q").value||"").toLowerCase();
+  const fs=document.getElementById("f-status").value, fp=document.getElementById("f-phase").value, fo=document.getElementById("f-owner").value;
+  const match = it => (!q || (it.id+" "+it.title+" "+it.desc+" "+(it.actions||"")+" "+(it.source||"")).toLowerCase().includes(q))
+    && (!fs||it.status===fs) && (!fp||it.phase===fp)
+    && (!fo|| (fo==="__none" ? !it.owner : it.owner===fo));
+
+  const all=state.items, done=all.filter(i=>i.status==="done").length,
+        prog=all.filter(i=>i.status==="in_progress").length, block=all.filter(i=>i.status==="blocked").length;
+  document.getElementById("stats").innerHTML = [
+    ["Total items", all.length], ["Done", done], ["In progress", prog], ["Blocked", block],
+    ["Completion", (all.length?Math.round(100*done/all.length):0)+"%"]
+  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+
+  document.getElementById("ws-grid").innerHTML = state.workstreams.map(ws=>{
+    const its=all.filter(i=>i.ws===ws.id); if(!its.length) return "";
+    const d=its.filter(i=>i.status==="done").length, p=its.filter(i=>i.status==="in_progress").length, b=its.filter(i=>i.status==="blocked").length;
+    return `<div class="ws-card" onclick="document.getElementById('sec-${ws.id}')?.scrollIntoView({behavior:'smooth'})">
+      <h3>${esc(ws.name)}</h3><div class="mini">${d}/${its.length} done · ${p} in progress${b?` · ${b} blocked`:""}</div>
+      ${statusBar(its)}</div>`;
+  }).join("");
+
+  let shown=0;
+  document.getElementById("sections").innerHTML = state.workstreams.map(ws=>{
+    const its = all.filter(i=>i.ws===ws.id && match(i)).sort((a,b)=>(a.priority||9)-(b.priority||9));
+    if(!its.length) return "";
+    shown+=its.length;
+    return `<div class="ws-section" id="sec-${ws.id}"><h2>${esc(ws.name)}</h2><div class="ws-desc">${esc(ws.desc)}</div>`
+      + its.map(itemHTML).join("") + `</div>`;
+  }).join("");
+  document.getElementById("count-line").textContent = shown+" items shown";
+}
+function statusBar(its){
+  const n=its.length||1, d=its.filter(i=>i.status==="done").length, p=its.filter(i=>i.status==="in_progress").length, b=its.filter(i=>i.status==="blocked").length;
+  return `<div class="bar"><i class="b-done" style="width:${100*d/n}%"></i><i class="b-prog" style="width:${100*p/n}%"></i><i class="b-block" style="width:${100*b/n}%"></i></div>`;
+}
+
+function itemHTML(it){
+  const ed=canWrite(), o=open.has(it.id), busy=pending.has(it.id);
+  const pr = it.priority ? `<span class="chip ${it.priority<=1?'p1':it.priority<=2?'p2':''}">P${it.priority}</span>` : "";
+  const notes=(it.notes||[]).slice().reverse().map(n=>
+    `<div class="note"><div class="meta">${esc(n.by)} · ${esc(n.at)}</div>${esc(n.text)}</div>`).join("") || `<span class="muted">No notes yet.</span>`;
+  const dis = busy ? " disabled" : "";
+  return `<div class="item st-${it.status}${o?' open':''}${busy?' pending':''}" id="it-${it.id}">
+    <div class="item-head" onclick="toggleItem('${it.id}')">
+      <span class="id">${esc(it.id)}</span><span class="t">${esc(it.title)}</span>
+      ${pr}<span class="chip">${esc(phaseLabel(it.phase))}</span><span class="chip src">${esc(it.source||"")}</span>
+      <span class="own">${it.owner?("👤 "+esc(it.owner)):"unassigned"}</span>
+      <span class="st-pill ${it.status}">${STATUSES[it.status]}${busy?" …":""}</span>
+    </div>
+    <div class="item-body">
+      <p class="desc">${esc(it.desc)}</p>
+      <div class="kv">
+        ${it.actions?`<b>Actions / process</b><span>${esc(it.actions)}</span>`:""}
+        ${it.metric?`<b>Metric / gate</b><span>${esc(it.metric)}</span>`:""}
+        ${it.stage?`<b>Pipeline stage</b><span>${esc(it.stage)}</span>`:""}
+        ${it.updated_by?`<b>Last updated</b><span>${esc(it.updated_by)} · ${esc(it.updated_at||"")}</span>`:""}
+      </div>
+      <div class="ctrl">${ ed ? `
+        <label class="muted">Status</label>
+        <select${dis} onchange="setField('${it.id}','status',this.value)">${Object.entries(STATUSES).map(([k,v])=>`<option value="${k}"${it.status===k?" selected":""}>${v}</option>`).join("")}</select>
+        <label class="muted">Owner</label>
+        <select${dis} onchange="setField('${it.id}','owner',this.value)"><option value="">unassigned</option>${EDITORS.map(e=>`<option${it.owner===e?" selected":""}>${e}</option>`).join("")}</select>
+        <label class="muted">Priority</label>
+        <select${dis} onchange="setField('${it.id}','priority',parseInt(this.value))">${[1,2,3,4,5,6].map(p=>`<option${it.priority===p?" selected":""}>${p}</option>`).join("")}</select>`
+        : `<span class="ro-msg">${isEditor() ? "Enter the shared edit key in ⚙ Sheet settings to edit." : "Select your name (Manish / Ganesh / Aakrit) in the top bar to edit."}</span>`}
+      </div>
+      <div class="notes"><b class="muted">Progress notes</b>${notes}
+        ${ ed ? `<div class="note-add"><input type="text" id="nt-${it.id}" placeholder="Add a progress note…"${dis} onkeydown="if(event.key==='Enter')addNote('${it.id}')"><button class="primary"${dis} onclick="addNote('${it.id}')">Add</button></div>` : ""}
+      </div>
+    </div></div>`;
+}
+
+/* ---------------- interactions ---------------- */
+function toggleItem(id){ open.has(id)?open.delete(id):open.add(id); render(); }
+function setField(id,f,v){
+  const it=state.items.find(i=>i.id===id); if(!it||!canWrite())return;
+  write(id, {action:"set", id, field:f, value:v}, ()=>{
+    it[f]=v; (it.notes=it.notes||[]).push({by:user, at:ts(), text: f==="status" ? "Status → "+v : f+" → "+(v||"unassigned")});
+  });
+}
+function addNote(id){
+  const el=document.getElementById("nt-"+id); if(!el||!el.value.trim()||!canWrite())return;
+  const text=el.value.trim(), it=state.items.find(i=>i.id===id); open.add(id);
+  write(id, {action:"note", id, text}, ()=>{ (it.notes=it.notes||[]).push({by:user, at:ts(), text}); it.last_note=user+": "+text; });
+}
+function phaseLabel(p){ const m=/^P(\d)$/.exec(p||""); return m ? "Phase "+m[1] : (p||""); }
+function ts(){ return new Date().toISOString().slice(0,16).replace("T"," "); }
+function esc(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+document.getElementById("user-sel").addEventListener("change", e=>{
+  user=e.target.value; localStorage.setItem(LS_KEY+"_user", user);
+  if(isEditor() && sheetMode && !editKey) openSettings();
+  refreshFromSheet(false);
+});
+
+/* ---------------- add item ---------------- */
+function openAdd(){ const sel=document.getElementById("n-ws");
+  sel.innerHTML=state.workstreams.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join("");
+  document.getElementById("add-dlg").showModal(); }
+function saveAdd(){ if(!canWrite())return;
+  const ws=document.getElementById("n-ws").value, t=document.getElementById("n-title").value.trim();
+  if(!t)return;
+  let n=state.items.filter(i=>i.ws===ws).length+1, id;
+  do { id = ws+(n++); } while(state.items.some(i=>i.id===id));
+  const item={id, ws, title:t,
+    desc:document.getElementById("n-desc").value.trim(),
+    actions:document.getElementById("n-actions").value.trim(),
+    metric:document.getElementById("n-metric").value.trim(),
+    phase:document.getElementById("n-phase").value,
+    priority:parseInt(document.getElementById("n-priority").value)||3,
+    source:"added by "+user, stage:"", status:"not_started", owner:""};
+  document.getElementById("add-dlg").close();
+  write(id, {action:"add", item}, ()=>{ state.items.push(Object.assign({notes:[{by:user,at:ts(),text:"Item created"}]}, item)); });
+}
+
+/* ---------------- offline backups ---------------- */
+function exportJSON(){ download("vulcan-eval-progress_"+new Date().toISOString().slice(0,10)+".json", JSON.stringify(state,null,2), "application/json"); }
+function importJSON(input){
+  const f=input.files[0]; if(!f)return;
+  if(sheetMode && !confirm("You are connected to the Google Sheet. Importing only replaces this browser's cached copy; the Sheet will overwrite it on next refresh. Continue?")) { input.value=""; return; }
+  f.text().then(txt=>{ try{
+      const s=JSON.parse(txt);
+      if(!s.items||!s.meta){ alert("Not a tracker export."); return; }
+      s.workstreams = seed.workstreams; state=s; persist(); render();
+    }catch(e){ alert("Could not parse that file."); } input.value=""; }); }
+function downloadSnapshot(){
+  const doc2=document.documentElement.cloneNode(true);
+  doc2.querySelector("#seed-data").textContent=JSON.stringify(Object.assign({}, state),null,1);
+  download("Vulcan_Eval_Progress_Tracker.html", "<!DOCTYPE html>\n"+doc2.outerHTML, "text/html"); }
+function download(name, content, type){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000); }
+function toggleTheme(){ document.body.classList.toggle("light");
+  localStorage.setItem(LS_KEY+"_theme", document.body.classList.contains("light")?"light":"dark"); }
+
+/* ============================================================
+   PIPELINE TAB — Vulcan's 16 onboarding stages (from the Vulcan
+   Onboarding Portal, main through #105, 2026-09-30) plus the
+   three evaluation stages that sit on top of the published graph.
+   ============================================================ */
+const PHASES = [
+  {id:"define",      name:"Define",      span:"1–3",  desc:"Decide what the asset is."},
+  {id:"acquire",     name:"Acquire",     span:"4–6",  desc:"Find its makers, models and documents."},
+  {id:"process",     name:"Process",     span:"7–9",  desc:"Turn documents into searchable, classified passages."},
+  {id:"extract",     name:"Extract",     span:"10–11",desc:"Read them for facts and failure knowledge."},
+  {id:"consolidate", name:"Consolidate", span:"12–13",desc:"Merge the same thing said a hundred ways."},
+  {id:"publish",     name:"Publish",     span:"14–15",desc:"Copy the result to Weaviate and wire its edges."},
+  {id:"enrich",      name:"Enrich",      span:"16",   desc:"Add standards, cases, rules and extra edges."},
+  {id:"evaluate",    name:"Evaluate",    span:"E1–E3",desc:"Benchmark generation, solving & judging, external validation (this eval programme)."}
+];
+const STAGES = [
+  {n:"1", phase:"define", name:"Grounded theme briefings", jobs:"onboard, seed_docs", model:"Gemini with search grounding", writes:"ten briefings, seed documents", cost:"$1.05",
+   desc:"The first thing Vulcan does with a new asset name is read about it. Ten Google-Search-grounded Gemini calls, one per fixed theme (product families, construction types, duty classes, standards, drive & heat source, materials, subsystems, packaging, size tiers, vendor terminology), each write a 700–1,300 word technical briefing. Together they are the source corpus for the taxonomy.",
+   items:["A11"]},
+  {n:"2", phase:"define", name:"Taxonomy: the two GPT passes", jobs:"taxonomy_process, vocab", model:"GPT-5.5, two passes", writes:"subtypes, axes, crosswalk, vocabularies", cost:"$1.79",
+   desc:"The briefings become a taxonomy in two GPT-5.5 calls at maximum reasoning effort. The first reads the briefings and writes the taxonomy; the second audits it and may only add coverage, never rewrite or delete. Axes that mean the same thing are merged (shared name words or ≥50% value overlap), folded additively into the live taxonomy behind a guard that refuses to lose a subtype. The crosswalk maps market vocabulary to subtype IDs.",
+   items:["A11","A12"]},
+  {n:"3", phase:"define", name:"Weaviate classes and subtype objects", jobs:"subtype_push", model:"none", writes:"19 empty classes, AssetSubtype objects", cost:"$0",
+   desc:"Two small operations turn the taxonomy into the graph's skeleton: derive nineteen Weaviate classes from the base ontology and the asset's axes and create them empty, then write one AssetSubtype object per taxonomy subtype. No model calls. Every later push assumes both are done.",
+   items:["B1"]},
+  {n:"4", phase:"acquire", name:"Search seeds and manufacturers", jobs:"seed_refresh, manufacturers, mfg_enrich, mfg_dedupe", model:"GPT-5.5 (seeds); Gemini grounded search", writes:"search seeds, maker list with domains", cost:"$28.37",
+   desc:"The crosswalk becomes search queries, the queries become a list of makers with official domains, and each maker is tagged with the service categories it was found under and, through the crosswalk, the subtypes it serves. Everything after this stage walks the maker list.",
+   items:[]},
+  {n:"5", phase:"acquire", name:"Models", jobs:"models, models_grounded, models_enrich", model:"Tavily page reads + Gemini; Gemini grounded", writes:"model rows with subtypes", cost:"$56.90",
+   desc:"Every maker is searched for the products it sells: a page-reading pass over the maker's own pages per product family, and a grounded pass for makers the first left thin. Each model row carries its subtypes — the source of truth for every later subtype stamp.",
+   items:["G6"]},
+  {n:"6", phase:"acquire", name:"Documents: model, failure, service, topic", jobs:"docs, failure_docs, service_docs, topic_docs, canonical", model:"Tavily search + Gemini judge", writes:"document rows, files in R2", cost:"$350.41",
+   desc:"Four searches gather the corpus: model documents per (maker, model), failure literature per subtype, service literature per (maker, category), and topic pages. Each ends as a URL row in SQLite and bytes in R2 under a path recording what it was searched for — the provenance every later stage reads. Most onboarding spend lands here (77% for stenter).",
+   items:[]},
+  {n:"7", phase:"process", name:"Parse to Markdown", jobs:"parse", model:"none (optional OCR)", writes:"Markdown per document", cost:"$1.21",
+   desc:"Every stored document becomes clean Markdown or is turned away with a reason. PDFs keep pages and chapter paths; teasers, non-English documents and duplicates are filtered; scanned PDFs go to an optional OCR lane.",
+   items:["A6","B8"]},
+  {n:"8", phase:"process", name:"Chunks and images", jobs:"chunk, image_extract", model:"none", writes:"passages, figures", cost:"$0",
+   desc:"Each parsed document is cut into ~500-token passages that respect sections and never split a table, each prefixed with a breadcrumb (asset › doc type › source › section). Figures are cut out with their surrounding text and become DiagnosticImage objects.",
+   items:["A10"]},
+  {n:"9", phase:"process", name:"KB ingest (classify)", jobs:"kb_ingest", model:"Gemini, one cheap call per document", writes:"TechnicalDocument card", cost:"$1.36",
+   desc:"Each chunked document gets a catalogue card from six sampled passages: document type, trust tier (A = standards body … D = forum post), equipment, publisher, date and a two-sentence summary. No card, no extraction; the tier drives evidence weighting later.",
+   items:["A9"]},
+  {n:"10", phase:"extract", name:"Context extract", jobs:"context_extract", model:"DeepSeek V4 Pro", writes:"models, components, envelopes", cost:"$9.09",
+   desc:"Each classified document is read once for facts about the machine itself — the models it names, components it refers to, and operating limits it states — producing ManufacturerModel, ComponentType and OperatingEnvelope objects. Reads twelve sampled passages, so limits in other tables are missed.",
+   items:["A7","A2","A3","A5","F1"]},
+  {n:"11", phase:"extract", name:"Graph extract", jobs:"graph_extract", model:"Qwen3-235B", writes:"mechanism cards: the failure graph", cost:"$1.95",
+   desc:"The failure graph is extracted mechanism by mechanism: one call lists the mechanisms a document describes, then a second extracts a complete card per mechanism — failure modes, components, symptoms and signals, diagnostics, root causes and corrective actions — every node linked inside the card before it is stored.",
+   items:["A1","A2","A3","A4","A5","G2","F1"]},
+  {n:"12", phase:"consolidate", name:"Canon rolling and fuzz", jobs:"canon_rolling, canon_fuzz", model:"embeddings + Qwen3-235B adjudicator", writes:"canonical names, registry", cost:"$0.32",
+   desc:"The same thing is written a hundred ways (\"HV winding\", \"high-voltage winding\", \"H.V. windings\"). Canon embeds every new name, attaches close matches (auto-merge above 0.92 cosine), sends the grey zone to an LLM jury that must be unanimous, and never merges on a guess — deliberately non-transitive. Fuzz catches case/punctuation variants.",
+   items:["B6","F2"]},
+  {n:"13", phase:"consolidate", name:"Dedup", jobs:"context_dedup", model:"none", writes:"one object per identity", cost:"$0",
+   desc:"Collapses each canonical group into one object keyed on the slug, unions links, sources and provenance, and rewrites every reference to the survivor. Mandatory after canon and before any push — it is the step that changes keys.",
+   items:["B8"]},
+  {n:"14", phase:"publish", name:"Push", jobs:"weaviate_push, context_push", model:"none (Weaviate embeds)", writes:"Weaviate objects, unlinked", cost:"$0",
+   desc:"SQLite is the source of truth; Weaviate is what the reasoning layer searches. Three pushes copy documents with chunks, context and graph objects, and images — each written bare under a key-derived uuid so re-pushes land on the same object. No push deletes anything.",
+   items:["B8"]},
+  {n:"15", phase:"publish", name:"Fix-refs and verification", jobs:"context_fixrefs", model:"none", writes:"Weaviate references", cost:"$0",
+   desc:"The push wrote the objects; fix-refs writes the edges. For every pushed object it reads the slug arrays in SQLite, keeps targets that exist in Weaviate, replaces each reference field at full consistency, then reads a sample back to verify. This is the step that makes the graph a graph — and where whole-graph quality is measured.",
+   items:["G1","B1","B2","B3","B4","B5","B7"]},
+  {n:"16", phase:"enrich", name:"Higher-order collections", jobs:"standards_*, investigation_case_*, casestudy_*, diagnosticrule, rca_link", model:"various; connect by embedding match", writes:"standards, cases, rules, extra edges", cost:"$1.27",
+   desc:"Five jobs add what per-document extraction cannot: cited standards, real failure investigations as cases, diagnostic rules synthesised from the graph, and extra cause edges. Each connects to existing nodes by embedding match against a closed set — never inventing a node — then publishes with a scoped push and fix-refs.",
+   items:["A8","G3"]},
+  {n:"E1", phase:"evaluate", name:"Benchmark case generation", jobs:"run_benchmark_job → benchmark.py", model:"deepseek-v4-pro generator", writes:"A-vs-N case files (case_input + hidden adjudication) in R2", cost:"—",
+   desc:"Reads a failure mechanism's subgraph, plants N confusable same-document distractors, and has a generator LLM author an operator-facing incident plus hidden ground-truth adjudication. Gated by structural checks, leakage screens, shortcut probes, ensemble triage and IRT item analysis.",
+   items:["C1","C2","C3","C4","C5","C6","F3"]},
+  {n:"E2", phase:"evaluate", name:"Solving & judging (A-vs-B)", jobs:"run_benchmark_run_job → bench_solver + bench_judge", model:"solvers A/B; cross-family judge panel", writes:"verdicts, run aggregates", cost:"—",
+   desc:"Same model answers each case alone (A) and through the KB N-pipeline (B); a 4-axis Likert judge (mechanism, root cause, reasoning, corrective actions) grades both blind. Validated by the cross-family panel, seeded-error contrast audits, bias monitors and a human anchor set; reported with CIs, significance tests and robustness suites.",
+   items:["D1","D2","D3","D4","E3","E4","E5","E6","F5"]},
+  {n:"E3", phase:"evaluate", name:"External validation", jobs:"external corpus runs", model:"same harness, validated judge", writes:"external results, benchmark card, public split", cost:"—",
+   desc:"Handbook- and literature-derived cases (EPRI, IEEE C57.125, failure-analysis journals, IEC TC 10) with expert-adjudicated ground truth; contamination probes; criterion-validity correlation with the synthetic benchmark; benchmark card and public release.",
+   items:["E1","E2","E7","E8","F4"]}
+];
+const FLEET_WIDE = ["G4","G5"];
+
+function renderPipeline(){
+  const byId = Object.fromEntries(state.items.map(i=>[i.id,i]));
+  const chipFor = id => { const it=byId[id]; if(!it) return "";
+    return `<span class="pl-item st-${it.status}" title="${esc(it.title)} — ${STATUSES[it.status]}" onclick="jumpTo('${id}')">${esc(id)}</span>`; };
+  let html = `<p class="muted" style="margin:0 0 14px">How an asset goes from a name to a linked knowledge graph — Vulcan's sixteen onboarding stages in seven phases, plus the three evaluation stages built on the published graph. Chips show the tracker items that evaluate each stage, coloured by status; click one to open it. Costs are stenter's complete onboarding (total $453.72). Source: Vulcan Onboarding Portal, 2026-09-30.</p>`;
+  html += `<div class="pl-flow">` + PHASES.map(ph=>`<a class="pl-phase-pill${ph.id==='evaluate'?' ev':''}" href="#ph-${ph.id}">${ph.name}<small>${ph.span}</small></a>`).join('<span class="pl-arrow">→</span>') + `</div>`;
+  PHASES.forEach(ph=>{
+    const stages = STAGES.filter(s=>s.phase===ph.id);
+    const ids = [...new Set(stages.flatMap(s=>s.items))].map(id=>byId[id]).filter(Boolean);
+    html += `<div class="pl-phase${ph.id==='evaluate'?' ev':''}" id="ph-${ph.id}"><div class="pl-phase-head"><h2>${ph.name} <small>stages ${ph.span}</small></h2><span class="muted">${esc(ph.desc)}</span>
+      <div class="pl-phase-bar">${ids.length?statusBar(ids)+`<span class="muted">${ids.filter(i=>i.status==="done").length}/${ids.length} eval items done</span>`:`<span class="muted">no eval items mapped</span>`}</div></div><div class="pl-stages">`;
+    stages.forEach(s=>{
+      html += `<div class="pl-stage"><div class="pl-num">${s.n}</div><div class="pl-body">
+        <h3>${esc(s.name)}</h3><p>${esc(s.desc)}</p>
+        <div class="pl-meta"><span><b>Jobs</b> <code>${esc(s.jobs)}</code></span><span><b>Model</b> ${esc(s.model)}</span><span><b>Writes</b> ${esc(s.writes)}</span>${s.cost!=="—"?`<span><b>Stenter cost</b> ${esc(s.cost)}</span>`:""}</div>
+        <div class="pl-items">${s.items.length? `<b class="muted">Evaluated by</b> `+s.items.map(chipFor).join(""):`<span class="muted">No dedicated eval item yet — covered indirectly by downstream checks.</span>`}</div>
+      </div></div>`;
+    });
+    html += `</div></div>`;
+  });
+  html += `<div class="pl-phase"><div class="pl-phase-head"><h2>Fleet-wide</h2><span class="muted">Items that cut across every stage.</span></div><div class="pl-items" style="padding:4px 2px">${FLEET_WIDE.map(chipFor).join("")}</div></div>`;
+  document.getElementById("view-pipeline").innerHTML = html;
+}
+function jumpTo(id){
+  open.add(id); setView("tracker");
+  ["q","f-status","f-phase","f-owner"].forEach(x=>document.getElementById(x).value="");
+  render();
+  setTimeout(()=>document.getElementById("it-"+id)?.scrollIntoView({behavior:"smooth", block:"center"}), 50);
+}
+
+/* ---------------- init ---------------- */
+if(localStorage.getItem(LS_KEY+"_theme")==="light") document.body.classList.add("light");
+function setShowSource(on){
+  document.body.classList.toggle("hide-src", !on);
+  document.getElementById("show-src").checked = on;
+  localStorage.setItem(LS_KEY+"_showsrc", on ? "1" : "0");
+}
+setShowSource(localStorage.getItem(LS_KEY+"_showsrc") === "1");   // hidden by default
+document.getElementById("user-sel").value = EDITORS.includes(user)? user : "";
+persist(); setView(view);
+refreshFromSheet(false);
+setInterval(()=>{ if(apiUrl && !pending.size && document.visibilityState==="visible") refreshFromSheet(false); }, POLL_MS);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && apiUrl) refreshFromSheet(false); });
+
+</script>
+</body>
+</html>
