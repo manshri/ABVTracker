@@ -127,6 +127,25 @@
   .pl-item.st-in_progress{background:rgba(245,184,77,.18);color:var(--warn)}
   .pl-item.st-blocked{background:rgba(240,100,108,.18);color:var(--block)}
   .pl-item.st-done{background:rgba(62,207,142,.18);color:var(--ok)}
+  /* ---- progress bars ---- */
+  .prog-row{flex-basis:100%;display:flex;align-items:center;gap:10px;margin-top:2px}
+  .prog-lbl{min-width:64px}
+  .prog-val{min-width:40px;text-align:right;font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums}
+  input[type=range].prog{-webkit-appearance:none;appearance:none;flex:1;min-width:160px;height:8px;border-radius:5px;outline:none;cursor:pointer;padding:0;border:0;
+    background:linear-gradient(to right,var(--c,var(--accent)) var(--p,0%),var(--panel2) var(--p,0%))}
+  input[type=range].prog::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--c,var(--accent));box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  input[type=range].prog::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--c,var(--accent))}
+  input[type=range].prog::-moz-range-track{background:transparent}
+  input[type=range].prog:disabled{cursor:default}
+  input[type=range].prog:disabled::-webkit-slider-thumb{visibility:hidden}
+  input[type=range].prog:disabled::-moz-range-thumb{visibility:hidden}
+  .ws-prog{display:flex;align-items:center;gap:10px;margin:6px 0 4px}
+  .ws-prog .pbar{flex:1;max-width:420px;height:10px;border-radius:6px;background:var(--panel2);overflow:hidden}
+  .ws-prog.compact{margin:0 0 8px}
+  .ws-prog.compact .pbar{max-width:none;height:8px}
+  .pbar i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .15s}
+  .pbar.full i{background:var(--ok)}
+  .ws-prog .pct{min-width:40px;font-size:13px;font-variant-numeric:tabular-nums}
   @media print{header .toolbar,footer{display:none}}
 </style>
 </head>
@@ -485,7 +504,7 @@ function loadLocal(){
   }catch(e){}
   return clone(seed);
 }
-function persist(){ state.meta.updated = new Date().toISOString().slice(0,10); localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function persist(){ state.meta.updated = new Date().toISOString().slice(0,10); localStorage.setItem(LS_KEY, JSON.stringify(state,(k,v)=>k==="_live"?undefined:v)); }
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function isEditor(){ return EDITORS.includes(user); }
 function canWrite(){ return isEditor() && (!sheetMode || !!editKey); }
@@ -513,10 +532,12 @@ async function refreshFromSheet(manual){
 function applyServerItems(items){
   // Sheet is the source of truth; keep descriptive fields from seed if the sheet cell is blank
   const seedById = Object.fromEntries(seed.items.map(i=>[i.id,i]));
+  const prevById = Object.fromEntries(state.items.map(i=>[i.id,i]));
   state.items = items.map(it=>{
     const s = seedById[it.id] || {};
     const out = Object.assign({}, s, Object.fromEntries(Object.entries(it).filter(([k,v])=>v!=="" && v!=null)));
     out.notes = it.notes || []; out.owner = it.owner || ""; out.status = it.status || "not_started";
+    out.progress = (it.progress===""||it.progress==null) ? (prevById[it.id]?.progress ?? 0) : (Number(it.progress)||0);
     return out;
   });
   persist();
@@ -587,7 +608,9 @@ function setView(v){
 
 /* ---------------- rendering: tracker ---------------- */
 const open = new Set();
+let dragging = false;   // true while a progress slider is being dragged (pauses re-renders)
 function render(){
+  if(dragging) return;
   document.getElementById("role-badge").textContent = isEditor()? (user+(sheetMode && !editKey?" · needs key":" · editor")) : "view only";
   document.getElementById("role-badge").className = "badge"+(canWrite()?" editor":"");
   document.getElementById("add-btn").classList.toggle("hidden", !canWrite());
@@ -604,15 +627,16 @@ function render(){
         prog=all.filter(i=>i.status==="in_progress").length, block=all.filter(i=>i.status==="blocked").length;
   document.getElementById("stats").innerHTML = [
     ["Total items", all.length], ["Done", done], ["In progress", prog], ["Blocked", block],
-    ["Completion", (all.length?Math.round(100*done/all.length):0)+"%"]
-  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+    ["Completion", (all.length?Math.round(100*done/all.length):0)+"%"],
+    ["Overall progress", avgProgress(all)+"%", "overall-n"]
+  ].map(([l,n,id])=>`<div class="stat"><div class="n"${id?` id="${id}"`:""}>${n}</div><div class="l">${l}</div></div>`).join("");
 
   document.getElementById("ws-grid").innerHTML = state.workstreams.map(ws=>{
     const its=all.filter(i=>i.ws===ws.id); if(!its.length) return "";
     const d=its.filter(i=>i.status==="done").length, p=its.filter(i=>i.status==="in_progress").length, b=its.filter(i=>i.status==="blocked").length;
     return `<div class="ws-card" onclick="document.getElementById('sec-${ws.id}')?.scrollIntoView({behavior:'smooth'})">
       <h3>${esc(ws.name)}</h3><div class="mini">${d}/${its.length} done · ${p} in progress${b?` · ${b} blocked`:""}</div>
-      ${statusBar(its)}</div>`;
+      ${wsProgHTML(ws.id, all, true)}${statusBar(its)}</div>`;
   }).join("");
 
   let shown=0;
@@ -620,10 +644,59 @@ function render(){
     const its = all.filter(i=>i.ws===ws.id && match(i)).sort((a,b)=>(a.priority||9)-(b.priority||9));
     if(!its.length) return "";
     shown+=its.length;
-    return `<div class="ws-section" id="sec-${ws.id}"><h2>${esc(ws.name)}</h2><div class="ws-desc">${esc(ws.desc)}</div>`
+    return `<div class="ws-section" id="sec-${ws.id}"><h2>${esc(ws.name)}</h2>${wsProgHTML(ws.id, all, false)}<div class="ws-desc">${esc(ws.desc)}</div>`
       + its.map(itemHTML).join("") + `</div>`;
   }).join("");
   document.getElementById("count-line").textContent = shown+" items shown";
+}
+/* ---------------- progress (per-card manual, per-workstream automatic) ---------------- */
+function effProgress(it){
+  if(it._live!=null) return it._live;                 // value while the slider is being dragged
+  if(it.status==="done") return 100;
+  return Math.max(0, Math.min(100, Math.round(Number(it.progress)||0)));
+}
+function avgProgress(its){ return its.length ? Math.round(its.reduce((s,i)=>s+effProgress(i),0)/its.length) : 0; }
+function wsProgHTML(wsId, all, compact){
+  const its=all.filter(i=>i.ws===wsId), p=avgProgress(its);
+  return `<div class="ws-prog${compact?" compact":""}" data-ws="${wsId}"><div class="pbar${p===100?" full":""}"><i style="width:${p}%"></i></div><b class="pct">${p}%</b>${compact?"":`<span class="muted">auto · average of ${its.length} cards</span>`}</div>`;
+}
+function paintWs(){   // live-update all workstream bars + overall stat without a full re-render
+  document.querySelectorAll(".ws-prog[data-ws]").forEach(el=>{
+    const p=avgProgress(state.items.filter(i=>i.ws===el.dataset.ws)), bar=el.querySelector(".pbar");
+    bar.querySelector("i").style.width=p+"%"; bar.classList.toggle("full",p===100); el.querySelector(".pct").textContent=p+"%";
+  });
+  const o=document.getElementById("overall-n"); if(o) o.textContent=avgProgress(state.items)+"%";
+}
+function progLive(el){
+  dragging=true;
+  const id=el.closest(".item").id.slice(3), it=state.items.find(i=>i.id===id); if(!it) return;
+  const v=+el.value; it._live=v;
+  el.style.setProperty("--p",v+"%"); el.style.setProperty("--c", v===100?"var(--ok)":"var(--accent)");
+  el.parentNode.querySelector(".prog-val").textContent=v+"%";
+  paintWs();
+}
+async function setProgress(id,val){
+  dragging=false;
+  const it=state.items.find(i=>i.id===id); if(!it) return;
+  delete it._live;
+  if(!canWrite()){ render(); return; }
+  const v=Math.max(0,Math.min(100,Math.round(Number(val)||0)));
+  if(v===effProgress(it)){ render(); return; }
+  // keep status in step with progress
+  let ns=it.status;
+  if(v===100) ns="done";
+  else if(ns==="done") ns = v===0 ? "not_started" : "in_progress";
+  else if(ns==="not_started" && v>0) ns="in_progress";
+  const changed = ns!==it.status;
+  await write(id, {action:"set", id, field:"progress", value:v}, ()=>{
+    it.progress=v;
+    if(changed){ it.status=ns; (it.notes=it.notes||[]).push({by:user, at:ts(), text:"Progress → "+v+"% (status → "+ns+")"}); }
+  });
+  if(changed){
+    const cur=state.items.find(i=>i.id===id);
+    if(cur && cur.progress===v && cur.status!==ns)   // sheet still has the old status → push it too
+      await write(id, {action:"set", id, field:"status", value:ns}, ()=>{ cur.status=ns; });
+  }
 }
 function statusBar(its){
   const n=its.length||1, d=its.filter(i=>i.status==="done").length, p=its.filter(i=>i.status==="in_progress").length, b=its.filter(i=>i.status==="blocked").length;
@@ -631,7 +704,7 @@ function statusBar(its){
 }
 
 function itemHTML(it){
-  const ed=canWrite(), o=open.has(it.id), busy=pending.has(it.id);
+  const ed=canWrite(), o=open.has(it.id), busy=pending.has(it.id), p=effProgress(it);
   const pr = it.priority ? `<span class="chip ${it.priority<=1?'p1':it.priority<=2?'p2':''}">P${it.priority}</span>` : "";
   const notes=(it.notes||[]).slice().reverse().map(n=>
     `<div class="note"><div class="meta">${esc(n.by)} · ${esc(n.at)}</div>${esc(n.text)}</div>`).join("") || `<span class="muted">No notes yet.</span>`;
@@ -642,6 +715,13 @@ function itemHTML(it){
       ${pr}<span class="chip">${esc(phaseLabel(it.phase))}</span><span class="chip src">${esc(it.source||"")}</span>
       <span class="own">${it.owner?("👤 "+esc(it.owner)):"unassigned"}</span>
       <span class="st-pill ${it.status}">${STATUSES[it.status]}${busy?" …":""}</span>
+      <div class="prog-row" onclick="event.stopPropagation()">
+        <span class="muted prog-lbl">Work done</span>
+        <input type="range" class="prog" min="0" max="100" step="5" value="${p}" style="--p:${p}%;--c:${p===100?"var(--ok)":"var(--accent)"}"${ed&&!busy?"":" disabled"}
+          title="${ed?"Drag to set how much of this task is complete":"Only editors can change progress"}"
+          oninput="progLive(this)" onchange="setProgress('${it.id}',this.value)" onblur="dragging=false">
+        <span class="prog-val">${p}%</span>
+      </div>
     </div>
     <div class="item-body">
       <p class="desc">${esc(it.desc)}</p>
@@ -668,11 +748,17 @@ function itemHTML(it){
 
 /* ---------------- interactions ---------------- */
 function toggleItem(id){ open.has(id)?open.delete(id):open.add(id); render(); }
-function setField(id,f,v){
+async function setField(id,f,v){
   const it=state.items.find(i=>i.id===id); if(!it||!canWrite())return;
-  write(id, {action:"set", id, field:f, value:v}, ()=>{
+  await write(id, {action:"set", id, field:f, value:v}, ()=>{
     it[f]=v; (it.notes=it.notes||[]).push({by:user, at:ts(), text: f==="status" ? "Status → "+v : f+" → "+(v||"unassigned")});
+    if(f==="status" && v==="done") it.progress=100;      // marking a card Done = 100% complete
   });
+  if(f==="status" && v==="done"){
+    const cur=state.items.find(i=>i.id===id);
+    if(cur && cur.status==="done" && cur.progress!==100)
+      await write(id, {action:"set", id, field:"progress", value:100}, ()=>{ cur.progress=100; });
+  }
 }
 function addNote(id){
   const el=document.getElementById("nt-"+id); if(!el||!el.value.trim()||!canWrite())return;
@@ -704,7 +790,7 @@ function saveAdd(){ if(!canWrite())return;
     metric:document.getElementById("n-metric").value.trim(),
     phase:document.getElementById("n-phase").value,
     priority:parseInt(document.getElementById("n-priority").value)||3,
-    source:"added by "+user, stage:"", status:"not_started", owner:""};
+    source:"added by "+user, stage:"", status:"not_started", owner:"", progress:0};
   document.getElementById("add-dlg").close();
   write(id, {action:"add", item}, ()=>{ state.items.push(Object.assign({notes:[{by:user,at:ts(),text:"Item created"}]}, item)); });
 }
